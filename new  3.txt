@@ -1,0 +1,66 @@
+			  <!-------------- customer's name ------------------------------------>
+			  <div id="item3" class="fb-item fb-100-item-column">
+				<div class="fb-grouplabel">
+				  <label style="DISPLAY: inline" id="item3_label_0">
+					Customer's Name</label>
+				</div>
+				<div class="fb-input-box">
+				  <input id="item3_text_1" maxlength="50" name="name" placeholder="" autocomplete="off"
+				  data-hint="" required type="text" <?php 
+				//display value if this field is filled, but there are other missing fields or there are errors
+				if ($missing || $errors)
+				{ echo 'value="'.htmlentities($name,ENT_COMPAT,'UTF-8').'"';}
+				?>/>
+				</div>
+			  </div>
+			  <!-------------------------------------------------------------------->
+
+			  
+			  <!------------------------------ contact no ---------------------------->
+			  <div id="item9" class="fb-item fb-100-item-column">
+				<div class="fb-grouplabel">
+				  <label style="DISPLAY: inline" id="item9_label_0">Contact No.</label>
+				</div>
+				<div class="fb-phone">
+				  <input id="item9_text_1" name="contactno" placeholder="" autocomplete="off"
+				  data-hint="" required type="tel" <?php 
+					//display value if this field is filled, but there are other missing fields or there are errors
+					if ($missing || $errors)
+						{echo 'value="'.htmlentities($contactno,ENT_COMPAT,'UTF-8').'"';}
+				?>/>
+				</div>
+			  </div>
+			   <!-------------------------------------------------------------------->
+			   
+			   
+			   <!-------------------- email ---------------------------------------->
+			   
+			  <div id="item25" class="fb-item fb-100-item-column">
+				<div class="fb-grouplabel">
+				  <label id="item25_label_0">Email</label>
+				</div>
+				<div class="fb-input-box">
+				  <input id="item25_email_1" class="" maxlength="50" name="email" data-hint=""
+				  required autocomplete="off" placeholder="you@domain.com" type="email" <?php 
+				//display value if this field is filled, but there are other missing fields or there are errors
+				if ($missing || $errors)
+				{echo 'value="'.htmlentities($email,ENT_COMPAT,'UTF-8').'"';}
+					?>/>
+				</div>
+					<?php
+						//warn user if e-mail field is empty
+						if ($missing && in_array('email',$missing)) 
+						{ ?>
+							<span style="color:red;font: bold 14px 'Lucida Sans Unicode', 'Lucida Grande', sans-serif;">
+							Please enter your email</span>
+					<?php }  //warn user if e-mail is invalid
+						elseif (isset($errors['email']))
+						{ ?>
+							<span style="color:red;font: bold 14px 'Lucida Sans Unicode', 'Lucida Grande', sans-serif;">
+							Invalid email address</span>
+					<?php }
+						?>
+			
+			  </div>
+			  
+			  <!------------------- end of email -------------------------------->

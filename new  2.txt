@@ -1,0 +1,863 @@
+<?php
+
+$online = false;
+
+//session timeout logs out the user automatically after a period of inactivity
+require_once('./includes/user_session_timeout.inc.php');
+
+//set up database connection
+require_once('./includes/my_connection.inc.php');
+$conn = dbConnect('write');
+
+// check if ran locally (testing) or online ################################ 
+
+$mystring = $_SERVER['HTTP_HOST'];          // $_SERVER['HTTP_HOST'] holds the hostname,
+                                                // if tested locally, it is ->  http://localhost/ 
+                                                // if online, it is ->  http://amazingcoveragecatering.hostzi.com/  
+                                                
+$posLocal = strpos($mystring, 'localhost');       // returns true if 'localhost' is find in hostname        
+$posOnline =  strpos($mystring, 'hostzi');        // returns true if 'hostzi' is find in hostname
+
+if ($posLocal !== false) {
+    //string 'localhost is find in address- offline'
+    $online = false;  
+} 
+else if ($posOnline !== false) {
+    //string 'hostzi' - online host is find in address- online'
+    $online = true; 
+}
+
+
+if ($online)    //if website is executed for real online, run captcha confirmation, and hide possible errors
+{
+require_once('./includes/recaptchalib.php'); 
+$public_key = '6Lf_DdQSAAAAAKgRpEc0lWuvBebmUH3LREUj9qR-';
+$private_key = '6Lf_DdQSAAAAAMxi_Mu8elnTH8PTX4UYvNCl1A-o'; 
+
+// prevents display of errors
+ini_set('display_errors', '0');      
+}
+
+//initialize arrays
+$missing = array();
+$errors = array();
+
+//check if form has been submitted
+if (isset($_POST['send']))
+{
+	
+	//eliminate magic quotes, which is enabled in 000webhost.com
+	include('./includes/nuke_magic_quotes.php')   ;
+	
+    //set e-mail address to send reservations to
+	$to = 		'camillejoane@yahoo.com';
+	$subject =  'Reservation from amazingCatering';
+	
+	//expected fields
+	$expected = array('event','name','contactno','email','location','date','eventtime');
+
+	//required fields
+	$required = array('event','name','contactno','email','location','date','eventtime');
+	
+	//additional headers
+	$headers = "Content-Type: text/plain; charset=utf-8\r\n";
+	$headers .= "From: amazingCatering_Reservation <reservation@amazingCatering.com>";
+    
+	/*$headers .= "Cc: sales@example.com, finance@example.com\r\n";  //can add CC and BCC
+	$headers .= 'Bcc: secretplanning@example.com'; */
+	
+	
+	//date validation  #############################################
+	
+	if (isset($_POST['date']))      // process date if it is inserted
+		{
+		  $newDate = $_POST['date'];        // get date from user input
+ 
+		  $format = 'Y-m-d';               // Year - month - date  eg. 2012-01-25
+			
+		  $newDate1 = new DateTime($newDate);   // create a DateTime object using user-input date
+		  $now = new DateTime();                // create a DateTime object using current date
+            
+            //compare date entered to any day in the past ----------------------
+			if ($newDate1->format($format) < $now->format($format))
+			{   
+                $errors['pastdate'] = true;
+			}
+            //-------------------------------------------------------------------
+            
+            
+            //compare date entered to 1 week after today 
+            //(reservation must be at least 1 week earlier)----------------------
+            
+            $reserveDate = new DateTime($newDate);
+            $reserveDate->modify("- 9 days ");
+            
+            if ($reserveDate->format($format) <  $now->format($format))  
+            {
+               //cannot reserve 1 week before
+               $errors['toosoondate'] = true; 
+                
+            }
+            
+            //-------------------------------------------------------------------
+            
+            
+            // find out if the date is already reserved or others  ---------------------------
+				//prepare SQL to get all dates from reservation table
+                $sql2 = "SELECT date		
+                  FROM reservations";
+                  
+                  $mySQLdate = $newDate1->format($format); 
+
+             // submit the query and capture the result 
+             $result = $conn->query($sql2) or die(mysqli_error()); 
+             // find out how many records were retrieved 
+             $numRows = $result->num_rows; 
+             
+             while ($row = $result->fetch_assoc()) { 	//loop through each record
+                if ($mySQLdate == $row['date'])			//if user date matches a date in the table
+                { $errors['duplicatedate'] = true;			
+                }
+              }
+
+             //-----------------------------------------------------------------------------------
+              
+		}
+        
+        //########################################################################   
+	
+	//time validation  #############################################   
+	
+	if ((isset($_POST['hour1'])) && (isset($_POST['min1'])) && (isset($_POST['ampm'])))  //process time if hours,mins, 
+		{                                                                                // and am:pm is set
+			$hour1 = (int) $_POST['hour1'];      // get hours from user input - parse to integer
+			$min1 = (int) $_POST['min1'];        // get minutes from user input - parse to integer    
+			$ampm =  $_POST['ampm'] ;            // get am:pm from user input    
+		    
+		    $newTime = new DateTime("1/25/2012"); //declare a DateTime object, can use any date, only the time will be used here
+		                                          // but for here we use Jan. 25 2012 
+                                                  
+                                                  //declaring a date sets it automatically to 00:00:00 in 24-hour format (12 midnight)
+		    if ($ampm == 'AM')
+		    {		}                   // if AM do nothing
+		    elseif ($ampm == 'PM')
+		    {$newTime->modify("+ 12 hours ");	}		   // if PM  add 12 hours
+		                                                             
+		    $newTime->modify("+ $hour1 hours ");           // add the user-input hours
+		    $newTime->modify("+ $min1 minutes ");          // add the user-input minutes
+		
+
+        //checking of time range  ------------------------------------------------
+        
+        $lowerLimit = new DateTime("1/25/2012");
+        $lowerLimit->modify("+ 8 hours ");              //8 AM lower limit
+		
+        $upperLimit = new DateTime("1/25/2012");
+		$upperLimit->modify("+ 22 hours ");             //10 PM upper limit
+        
+
+        if(($newTime < $lowerLimit) || ($newTime > $upperLimit))    // if lower than lower limit or higher than upper limit, error
+        {
+            $errors['time'] = true;
+        }
+        
+        $eventTime =  $newTime->format('h:i A');              //12-hour format with am-pm
+        
+        $_POST['eventtime'] = $eventTime;                     //finalize eventtime for email
+        
+        $eventTime24 =  $newTime->format('H:i:s');            //finalize eventtime for database, mysql needs 24-hour format
+
+		}
+        
+        //-------------------------------------------------------------------- 
+        
+    //########################################################################   
+        
+
+	//reCaptcha ##############################################################
+    
+    if ($online)  // run reCaptcha only if online
+    {
+        $response = recaptcha_check_answer($private_key, $_SERVER['REMOTE_ADDR'], 
+          $_POST['recaptcha_challenge_field'], $_POST['recaptcha_response_field']); 
+        if (!$response->is_valid) { 
+          $errors['recaptcha'] = true; 
+        }            
+    }
+
+	//########################################################################
+    
+    
+	//reservation processing script
+	require('./includes/processreservation.inc.php');   
+	
+    if ($reservationSaved)		//if successfully saved, redirect to thank you page
+	{header('Location: ./thank_you/thank_you.php');}
+}
+?>
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+  
+ <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <script type="text/javascript" src="./js/form_init.js" id="form_init_script"
+    data-name="">
+    </script>
+    <link rel="stylesheet" type="text/css" href="default.css"
+    id="theme" />
+    <title>
+      Reservation Page
+    </title>
+	
+	<style type="text/css">
+	div#container
+	{
+	   width: 1024px;
+	   position: relative;
+	   margin-top: 0px;
+	   margin-left: auto;
+	   margin-right: auto;
+	   text-align: left;
+	}
+	body
+	{
+	   text-align: center;
+	   margin: 0;
+	   background-color: #FFFFE0;
+	   background-image: url(images/images%20%2817%29.jpg);
+	   background-position: center top;
+	   color: #000000;
+	}
+	</style>
+	<script type="text/javascript" src="./jscookmenu.min.js"></script>
+	<style type="text/css">
+	a
+	{
+	   color: #376BAD;
+	   text-decoration: none;
+	}
+	a:visited
+	{
+	   color: #376BAD;
+	}
+	a:active
+	{
+	   color: #C8D7EB;
+	}
+	a:hover
+	{
+	   color: #376BAD;
+	   text-decoration: underline;
+	}
+	</style>
+	<style type="text/css">
+	#Image1
+	{
+	   border: 0px #000000 solid;
+	}
+	#MenuBar2
+	{
+	   background-color: #D7EBF9;
+	   border: 1px solid #AED0EA;
+	}
+	.ThemeMenuBar2Menu,
+	.ThemeMenuBar2SubMenuTable
+	{
+	   font-family: Arial;
+	   font-size: 16px;
+	   font-weight: bold;
+	   color: #2779AA;
+	   text-align: center;
+	   padding: 0;
+	   cursor: pointer;
+	}
+	.ThemeMenuBar2MenuOuter
+	{
+	   border: 0;
+	   margin: 0 -6px 0 0;
+	}
+	.ThemeMenuBar2SubMenu
+	{
+	   position: absolute;
+	   visibility: hidden;
+	   border: 0;
+	   padding: 0;
+	   border: 1px solid #AED0EA;
+	}
+	.ThemeMenuBar2Menu td
+	{
+	   padding: 0;
+	}
+	.ThemeMenuBar2SubMenuTable
+	{
+	   color: #2779AA;
+	   text-align: center;
+	   background-color: #D7EBF9;
+	   font-weight: normal;
+	   font-style: normal;
+	   text-decoration: none;
+	}
+	.ThemeMenuBar2SubMenuTable td
+	{
+	   white-space: nowrap;
+	}
+	.ThemeMenuBar2MainItem
+	{
+	}
+	.ThemeMenuBar2MainItem,
+	.ThemeMenuBar2MainItemHover,
+	.ThemeMenuBar2MainItemActive,
+	.ThemeMenuBar2MenuItem,
+	.ThemeMenuBar2MenuItemHover,
+	.ThemeMenuBar2MenuItemActive
+	{
+	   white-space: nowrap;
+	}
+	.ThemeMenuBar2MainItem
+	{
+	   background: url(images/img0004.gif);
+	   width: 106px;
+	   padding-right: 6px;
+	   height: 28px;
+	   background-repeat: no-repeat;
+	}
+	.ThemeMenuBar2MainItemHover,
+	.ThemeMenuBar2MainItemActive
+	{
+	   background: url(images/img0004_hover.gif);
+	   width: 106px;
+	   height: 28px;
+	   padding-right: 6px;
+	   background-repeat: no-repeat;
+	}
+	.ThemeMenuBar2MainItemHover,
+	.ThemeMenuBar2MainItemActive
+	{
+	   color: #0070A3;
+	   font-weight: bold;
+	   font-style: normal;
+	   text-decoration: none;
+	}
+	.ThemeMenuBar2MenuItemHover,
+	.ThemeMenuBar2MenuItemActive
+	{
+	   color: #0070A3;
+	   background-color: #E4F1FB;
+	   font-weight: normal;
+	   font-style: normal;
+	   text-decoration: none;
+	}
+	.ThemeMenuBar2MenuFolderLeft,
+	.ThemeMenuBar2MenuFolderRight,
+	.ThemeMenuBar2MenuItemLeft,
+	.ThemeMenuBar2MenuItemRight
+	{
+	   padding: 0px 0px 0px 0px;
+	}
+	td.ThemeMenuBar2MainFolderText,
+	td.ThemeMenuBar2MainItemText
+	{
+	   padding: 0px 0px 0px 0px;
+	   width: 106px;
+	   height: 28px;
+	   padding-right: 6px;
+	}
+	.ThemeMenuBar2MenuFolderText,
+	.ThemeMenuBar2MenuItemText
+	{
+	   padding: 3px 5px 3px 5px;
+	}
+	.ThemeMenuBar2MenuItem .ThemeMenuBar2MenuFolderText,
+	.ThemeMenuBar2MenuItem .ThemeMenuBar2MenuItemText
+	{
+	   border: 1px solid transparent;
+	}
+	.ThemeMenuBar2MenuItemHover .ThemeMenuBar2MenuFolderText,
+	.ThemeMenuBar2MenuItemActive .ThemeMenuBar2MenuFolderText,
+	.ThemeMenuBar2MenuItemHover .ThemeMenuBar2MenuItemText,
+	.ThemeMenuBar2MenuItemActive .ThemeMenuBar2MenuItemText
+	{
+	   border: 1px solid #74B2E2;
+	}
+	td.ThemeMenuBar2MenuSplit
+	{
+	   overflow: hidden;
+	   background-color: inherit;
+	}
+	div.ThemeMenuBar2MenuSplit
+	{
+	   height: 1px;
+	   margin: 0px 0px 0px 0px;
+	   overflow: hidden;
+	   background-color: inherit;
+	   border-top: 1px solid #2779AA;
+	}
+	.ThemeMenuBar2MenuVSplit
+	{
+	   display: block;
+	   width: 1px;
+	   margin: 0px 2px 0px 2px;
+	   overflow: hidden;
+	   background-color: inherit;
+	   border-right: 1px solid #2779AA;
+	}
+	#wb_Text2 
+	{
+	   background-color: transparent;
+	   border: 0px #FFC0CB solid;
+	   padding: 0;
+	}
+	#wb_Text2 div
+	{
+	   text-align: left;
+	}
+	#wb_Text3 
+	{
+	   background-color: transparent;
+	   border: 0px #FFC0CB solid;
+	   padding: 0;
+	}
+	#wb_Text3 div
+	{
+	   text-align: center;
+	}
+	#PhotoGallery1
+	{
+	   border-spacing: 4px;
+	   width: 100%;
+	}
+	#PhotoGallery1 .figure
+	{
+	   padding: 0px 0px 0px 0px;
+	   text-align: center;
+	   vertical-align: top;
+	}
+	#PhotoGallery1 .figure img
+	{
+	   border: 0px #000000 solid;
+	}
+	#wb_Text1 
+	{
+	   background-color: transparent;
+	   border: 0px #000000 solid;
+	   padding: 0;
+	}
+	#wb_Text1 div
+	{
+	   text-align: center;
+	}
+	#wb_Text4 
+	{
+	   background-color: transparent;
+	   border: 0px #000000 solid;
+	   padding: 0;
+	}
+	#wb_Text4 div
+	{
+	   text-align: left;
+	}
+	</style>
+
+ </head>
+  
+<body style="background-color:pink">
+
+<div id="container">
+	<div id="wb_Shape1" style="position:absolute;left:83px;top:138px;width:859px;height:53px;z-index:1;">
+	<img src="./images/img0003.gif" id="Shape1" alt="" style="border-width:0;width:859px;height:53px;"></div>
+	<div id="wb_MenuBar2" style="position:absolute;left:91px;top:151px;width:842px;height:28px;z-index:1002;">
+	<div id="MenuBar2">
+	<ul style="display:none;">
+	<li><span></span><span><a href="./index.php">Home</a></span></li>
+	<li><span></span><span>Services</span>
+	<ul>
+	<li><span></span><span><a href="./services/event/event.php">Event</a></span>
+	<!--ul>
+	<li><span></span><span><a href="./services/birthday.php">Birthday</a></span></li>
+	<li><span></span><span>Debut</span></li>
+	<li><span></span><span>Wedding</span></li>
+	<li><span></span><span>Christening</span></li>
+	<li><span></span><span>Anniversary</span></li>
+	</ul-->
+	</li>
+	<li><span></span><span><a href="./servies/catering/catering.php">Catering</a></span></li>
+	<li><span></span><span><a href="./services/rental/rental.php">Rental</a></span></li>
+	</ul>
+	</li>
+	<li><span></span><span>Packages</span>
+	<ul>
+	<li><span></span><span><a href="./packages/debut/debut.php">Debut&nbsp;Package</a></span></li>
+	<li><span></span><span><a href="./packages/kiddie/kiddie.php">Kiddie&nbsp;Party&nbsp;Package</a></span></li>
+	<li><span></span><span><a href="./packages/wedding/wedding.php">Wedding&nbsp;Package</a></span></li>
+	</ul>
+	</li>
+	<li><span></span><span><a href="./gallery/gallery.php">Gallery</a></span></li>
+	<li><span></span><span>Reservation</span></li>
+	<li><span></span><span><a href="./admin/adminpage.php">Admin&nbsp;Page</a></span></li>
+	<li><span></span><span><a href="./about/about.php">About&nbsp;Us</a></span></li>
+	<li><span></span><span><a href="./contact/contact.php">Contact&nbsp;Us</a></span></li>
+	</ul>
+	</div>
+	<script type="text/javascript">
+	<!--
+	var cmMenuBar2 =
+	{
+	   mainFolderLeft: '',
+	   mainFolderRight: '',
+	   mainItemLeft: '',
+	   mainItemRight: '',
+	   folderLeft: '',
+	   folderRight: '',
+	   itemLeft: '',
+	   itemRight: '',
+	   mainSpacing: 0,
+	   subSpacing: 0,
+	   delay: 100,
+	   offsetHMainAdjust: [0, 1],
+	   offsetSubAdjust: [0, 0]
+	};
+	var cmThemeMenuBar2HSplit = [_cmNoClick, '<td colspan="3" class="ThemeMenuBar2MenuSplit"><div class="ThemeMenuBar2MenuSplit"><\/div><\/td>'];
+	var cmThemeMenuBar2MainHSplit = [_cmNoClick, '<td colspan="3" class="ThemeMenuBar2MenuSplit"><div class="ThemeMenuBar2MenuSplit"><\/div><\/td>'];
+	var cmThemeMenuBar2MainVSplit = [_cmNoClick, '<div class="ThemeMenuBar2MenuVSplit">|<\/div>'];
+
+	cmMenuBar2.effect = new CMSlidingEffect(8);
+	cmDrawFromText('MenuBar2', 'hbr', cmMenuBar2, 'ThemeMenuBar2');
+	-->
+	</script>
+</div>  
+
+<div id="wb_TextArt3" style="position:absolute;left:131px;top:9px;width:762px;height:86px;z-index:3;">
+<img src="images/img0001.png" id="TextArt3" alt="Amazing Coverage + Catering " title="Amazing Coverage + Catering " style="border-width:0;width:762px;height:86px;"></div>
+<div id="wb_TextArt1" style="position:absolute;left:553px;top:95px;width:385px;height:43px;z-index:4;">
+<img src="images/img0002.png" id="TextArt1" alt="The Modern Catering Stylist" title="The Modern Catering Stylist" style="border-width:0;width:385px;height:43px;"></div>
+ 
+  
+<div style="width:500px; position:relative;top:200px;left:250px;">
+
+  <?php
+	if ($_POST && isset($errors['database']))
+	{ ?>  
+		<p style="color:white; font:12px bold sans-serif;">Sorry, the reservation is not saved.<br/>Please try again later.</p>
+		<?php 
+		echo $errors['database'];
+	}
+	elseif ($missing || $errors)
+	{ ?>
+		<p style="color:white; font:12px bold sans-serif;">
+			Please fix the item(s) indicated.
+		</p>
+	    <?php 
+	} ?>
+
+    <form style="BACKGROUND-COLOR: #f0daf0; MARGIN: 5px; WIDTH: 500px; FONT-SIZE: 13px"
+    id="docContainer" class="fb-toplabel fb-100-item-column selected-object"
+    enctype="multipart/form-data" method="post" action="" novalidate="novalidate" data-margin="custom">
+	    <div style="MIN-HEIGHT: 20px" id="fb-form-header1" class="fb-form-header">
+			<a id="fb-link-logo1" class="fb-link-logo" href="" target="_blank">
+				<img style="DISPLAY: none" id="fb-logo1" class="fb-logo" title="Alternative text" alt="Alternative text" src="common/images/image_default.png"/>
+			</a>
+	    </div>
+		<div id="section1" class="section">
+			<div id="column1" class="column ui-sortable">
+			  <div style="FILTER: " id="item1" class="fb-item fb-100-item-column">
+				<div class="fb-header">
+				   <h2 style="DISPLAY: inline">
+					AMAZING COVERAGE and CATERING
+				  </h2>
+				  <h2 style="DISPLAY: inline">
+					Reservation Form
+				  </h2>
+				</div>
+			  </div>
+			  
+			  <!--###########################-- EVENT TYPE drop down --###################################---->
+			  
+			  <div style="FILTER: " id="item10" class="fb-item fb-50-item-column">
+				<div class="fb-grouplabel">
+				  <label style="DISPLAY: inline" id="item10_label_0">Event</label>
+				</div>
+				<div class="fb-dropdown">
+				  <select id="item10_select_1" name="event" data-hint required >
+				  
+					<?php // determine selected option from the drop-down menu
+						  // attach 'selected' for the option selected
+					?>
+
+					<option value=""
+						<?php		
+							if ($_POST == false || $_POST['event'] == '')
+							{echo 'selected ';} ?>>
+					  Select One
+					</option>
+				  
+					<option id="item10_0_option" value="Birthday" 	<?php
+						if (($_POST == true) && ($_POST['event'] == 'Birthday'))
+						{echo 'selected';} ?>>    
+					  Birthday
+					</option>
+					<option id="item10_1_option" value="Debut" 	<?php
+						if (($_POST == true) && ($_POST['event'] == 'Debut'))
+						{echo 'selected ';} ?>>
+					  Debut
+					</option>
+					<option id="item10_2_option" value="Wedding"     	<?php
+						if (($_POST == true) && ($_POST['event'] == 'Wedding'))
+						{echo 'selected ';} ?>>
+					  Wedding
+					</option>
+					<option id="item10_3_option" value="Christening" 	<?php
+						if (($_POST == true) && ($_POST['event'] == 'Christening'))
+						{echo 'selected ';} ?>>
+					  Christening
+					</option>
+					<option id="item10_4_option" value="Anniversary" 	<?php
+						if (($_POST == true) && ($_POST['event'] == 'Anniversary'))
+						{echo 'selected ';} ?>>
+					  Anniversary
+					</option>
+				  </select>
+				</div>
+			  </div>
+			  
+			  <!--######################### end of EVENT TYPE drop down -#################################-->
+			  
+			  <!-------------- customer's name ------------------------------------>
+			  <div id="item3" class="fb-item fb-100-item-column">
+				<div class="fb-grouplabel">
+				  <label style="DISPLAY: inline" id="item3_label_0">
+					Customer's Name</label>
+				</div>
+				<div class="fb-input-box">
+				  <input id="item3_text_1" maxlength="50" name="name" placeholder="" autocomplete="off"
+				  data-hint="" required type="text" <?php 
+				//display value if this field is filled, but there are other missing fields or there are errors
+				if ($missing || $errors)
+				{ echo 'value="'.htmlentities($name,ENT_COMPAT,'UTF-8').'"';}
+				?>/>
+				</div>
+			  </div>
+			  <!-------------------------------------------------------------------->
+
+			  
+			  <!------------------------------ contact no ---------------------------->
+			  <div id="item9" class="fb-item fb-100-item-column">
+				<div class="fb-grouplabel">
+				  <label style="DISPLAY: inline" id="item9_label_0">Contact No.</label>
+				</div>
+				<div class="fb-phone">
+				  <input id="item9_text_1" name="contactno" placeholder="" autocomplete="off"
+				  data-hint="" required type="tel" <?php 
+					//display value if this field is filled, but there are other missing fields or there are errors
+					if ($missing || $errors)
+						{echo 'value="'.htmlentities($contactno,ENT_COMPAT,'UTF-8').'"';}
+				?>/>
+				</div>
+			  </div>
+			   <!-------------------------------------------------------------------->
+			   
+			   
+			   <!-------------------- email ---------------------------------------->
+			   
+			  <div id="item25" class="fb-item fb-100-item-column">
+				<div class="fb-grouplabel">
+				  <label id="item25_label_0">Email</label>
+				</div>
+				<div class="fb-input-box">
+				  <input id="item25_email_1" class="" maxlength="50" name="email" data-hint=""
+				  required autocomplete="off" placeholder="you@domain.com" type="email" <?php 
+				//display value if this field is filled, but there are other missing fields or there are errors
+				if ($missing || $errors)
+				{echo 'value="'.htmlentities($email,ENT_COMPAT,'UTF-8').'"';}
+					?>/>
+				</div>
+					<?php
+						//warn user if e-mail field is empty
+						if ($missing && in_array('email',$missing)) 
+						{ ?>
+							<span style="color:red;font: bold 14px 'Lucida Sans Unicode', 'Lucida Grande', sans-serif;">
+							Please enter your email</span>
+					<?php }  //warn user if e-mail is invalid
+						elseif (isset($errors['email']))
+						{ ?>
+							<span style="color:red;font: bold 14px 'Lucida Sans Unicode', 'Lucida Grande', sans-serif;">
+							Invalid email address</span>
+					<?php }
+						?>
+			
+			  </div>
+			  
+			  <!------------------- end of email -------------------------------->
+			  
+			  
+				<!------------------------------ location ---------------------------->
+			  <div style="FILTER: " id="item5" class="fb-item fb-100-item-column">
+				<div class="fb-grouplabel">
+				  <label style="DISPLAY: inline" id="item5_label_0">Location</label>
+				</div>
+				<div class="fb-input-box">
+				  <input id="item5_text_1" maxlength="100" name="location" placeholder="" autocomplete="off"
+				  data-hint="" required type="text" <?php 
+				//display value if this field is filled, but there are other missing fields or there are errors
+				if ($missing || $errors)
+				{echo 'value="'.htmlentities($location,ENT_COMPAT,'UTF-8').'"';}
+					?>/>
+				</div>
+			  </div>
+			  <!-------------------------------------------------------------------->
+			  
+			  <!----------------------- event DATE--------------------------->
+			  <div style="FILTER: " id="item21" class="fb-item fb-33-item-column">
+				<div class="fb-grouplabel">
+				  <label style="DISPLAY: inline" id="item21_label_0">Date of Event</label>
+				</div>
+				<div style="float:left">
+				  <input id="item21_date_1" class="datepicker" name="date" data-hint=""
+				  required type="date"  <?php 
+				//display value if this field is filled, but there are other missing fields or there are errors
+				if ($missing || $errors)
+				{echo 'value="'.htmlentities($date,ENT_COMPAT,'UTF-8').'"';}
+					?> />
+				</div>
+				
+				<div style="float:left; font-weight:bold; color:red; width:500px;">
+					<?php if (isset($errors['pastdate'])) 		//warn if user entered a date from past
+							{ echo 'Cannot set a date from past'; }
+						 else if (isset($errors['toosoondate']))  //warn if user entered a date 1 week from now
+							{ echo 'Cannot set a date 1 week from now'; }
+						 else if (isset($errors['duplicatedate'])) 	 //warn if user entered a reserved date
+							{ echo 'Sorry. That date has been reserved by other customers. <br/> Please pick another date.'; }
+					
+					?>
+				</div>
+				
+			  </div>
+			  
+			  <!-------------------------------------------------------------------->
+			  
+			  <!-- ###########################  event TIME ###########################--->
+			  <div id="item20" class="fb-item fb-100-item-column">
+				
+				<div class="fb-header">
+				  <h2 style="DISPLAY: inline; FONT-SIZE: 14px">
+					Time of the Event
+				  </h2>
+				</div>
+				
+				<div style="float:left; font-weight:bold; color:red; width:500px;">
+					<?php if (isset($errors['time'])) 		//warn if user entered a time outside the range
+							{ echo 'Time not accepted. Choose a time from 8:00 AM to 10:00 PM. '; }
+					?>
+				</div>
+				
+			  </div>
+			  
+			  <!--------------------------- hour ----------------------------------->
+			  <div style="FILTER: " id="item17" class="fb-item fb-20-item-column">
+				<div class="fb-grouplabel">
+				  <label style="DISPLAY: inline" id="item17_label_0">Hour</label>
+				</div>
+				<div class="fb-input-number">
+				  <input id="item17_number_1" name="hour1" min="1" max="12" autocomplete="off" required
+				  data-hint="" step="1" type="number" <?php 
+					//display value if this field is filled, but there are other missing fields or there are errors
+					if ($missing || $errors)
+						{echo 'value="'.htmlentities($hour1,ENT_COMPAT,'UTF-8').'"';}
+					?>/>
+				</div>
+			  </div>
+			  <!--------------------------- minute ----------------------------------->
+			  <div id="item18" class="fb-item fb-20-item-column">
+				<div class="fb-grouplabel">
+				  <label style="DISPLAY: inline" id="item18_label_0">Minute</label>
+				</div>
+				<div class="fb-input-number">
+				  <input id="item18_number_1" name="min1" min="0" max="59" autocomplete="off" required
+				  data-hint="" step="1" type="number" <?php 
+					//display value if this field is filled, but there are other missing fields or there are errors
+					if ($missing || $errors)
+						{echo 'value="'.htmlentities($min1,ENT_COMPAT,'UTF-8').'"';}
+					?>/>
+				</div>
+			  </div>
+			  <!--------------------------- AM/PM ----------------------------------->
+				<div style="PADDING-LEFT: 10px" id="item22" class="fb-item fb-50-item-column">
+					<div class="fb-grouplabel">
+					  <label style="DISPLAY: inline" id="item22_label_0">AM / PM</label>
+					</div>
+					<div class="fb-dropdown">
+					  <select id="item22_select_1" name="ampm" data-hint="" required>
+					  
+						<?php // determine selected option from the drop-down menu
+							  // attach 'selected' for the option selected
+						?>
+					  
+						<option id="item22_0_option" value="" <?php
+								if ($_POST == false || $_POST['ampm'] == '')
+								{echo 'selected ';} ?> >
+						  Choose one
+						</option>
+						<option id="item22_1_option" value="AM" <?php
+								if ($_POST == true && $_POST['ampm'] == 'AM')
+								{echo 'selected';} ?>>
+						  AM
+						</option>
+						<option id="item22_2_option" value="PM" <?php
+								if ($_POST == true && $_POST['ampm'] == 'PM')
+								{
+								echo 'selected';
+								} ?>>
+						  PM
+						</option>
+					  </select>
+					</div>
+				</div>
+			    <!-- ##################### end of event TIME #############################---->
+			  
+			</div>
+		</div>
+
+		  <div style="text-align:center;" >
+		  
+				<!--div style="margin:20px auto; font-size: 20px; font-weight: bold;">
+				Downpayment: PHP 5000.00 
+				Non-refundable
+		  
+				</div-->
+
+		  </div>
+
+		  <?php if ($online)		//execute reCaptcha only if online
+		  { ?>  					
+				<div style="width:300px; margin: 10px auto; text-align: center;">
+					<hr />
+					<div style="font:bold 14px Arial,sans-serif;">CAPTCHA confirmation
+					</div>
+						  <!--recaptcha --------->
+							<?php if (isset($errors['recaptcha']))
+								{ ?>	
+									<p class="warning">The values didn't match. Try again</p>
+							<?php } 
+							echo recaptcha_get_html($public_key);   ?>
+							<!--------------------------->
+					<hr /> 
+				</div>
+			  <?php 
+		  } ?>
+			
+		  <div style="HEIGHT: 85px" id="fb-submit-button-div" class="fb-item-alignment-left">
+			<input id="fb-submit-button" class="fb-button-special" type="submit" value="Submit" name="send"
+			/>
+		  </div>
+		</form>
+		
+			
+	</div>
+	
+</div>
+ 
+	
+</body>
+
+</html>

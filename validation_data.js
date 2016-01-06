@@ -1,0 +1,3 @@
+ var data_validation = '{"fb-submit-button":{"hover":{"background-image":""}},"item17_number_1":{"decimals":"zero","range":{"0":1,"1":12,"2":1}},"item18_number_1":{"decimals":"zero","range":{"0":0,"1":59,"2":1}},"item21_date_1":{"date":true,"date_config":{"minDate":"","maxDate":"","dateFormat":"mm/dd/yy"}},"item22_select_1":{"required":true},"item25_select_1":{"required":true},"item27_number_1":{"decimals":"zero","range":{"0":100,"1":99999,"2":1},"required":true},"item30_textarea_1":{"maxlength":"10000"}}';
+ var data_jsplugins = '[]';
+ var data_cssplugins = '[]';

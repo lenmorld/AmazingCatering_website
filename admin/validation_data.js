@@ -1,0 +1,3 @@
+ var data_validation = '{"fb-submit-button":{"hover":{"background-image":""}},"item5_text_1":{"required":true,"maxlength":"100","messages":"Please insert the location of the event"},"item17_number_1":{"decimals":"zero","range":{"0":1,"1":12,"2":1}},"item18_number_1":{"decimals":"zero","range":{"0":0,"1":59,"2":1}},"item21_date_1":{"date":true,"date_config":{"dateFormat":"mm/dd/yy"},"required":true},"item22_select_1":{"required":true},"item32_select_1":{"required":true}}';
+ var data_jsplugins = '[]';
+ var data_cssplugins = '[]';
